@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using UnityEditor;
 using UnityEngine;
 
 [ExecuteAlways]
@@ -12,6 +10,7 @@ public class WaypointSystem : MonoBehaviour
     [SerializeField] private bool forcePointsToGround = true;
 
     public bool LoopPath => loopPath;
+    public bool ForcePointsToGround => forcePointsToGround;
     public List<Vector3> Waypoints => waypoints;
 
     public event Action<int, int> OnListCountChanged;
@@ -43,26 +42,4 @@ public class WaypointSystem : MonoBehaviour
         waypoints.RemoveAt(index);
         OnListCountChanged.Invoke(waypoints.Count, waypoints.Count + 1);
     }
-
-    //private void OnEnable()
-    //{
-    //    if(waypoints.Count <= 0)
-    //    {
-    //        waypoints.Add(transform.position);
-    //    }
-
-    //    so = new SerializedObject(this);
-    //    propWaypoints = so.FindProperty("propWaypoints");
-    //}
-
-    //private void OnGUI()
-    //{
-    //    so.Update();
-    //    for (int i = 0; i < propWaypoints.arraySize; i++)
-    //    {
-    //        SerializedProperty prop = propWaypoints.GetArrayElementAtIndex(i);
-    //        prop.vector3Value = Handles.PositionHandle(prop.vector3Value, Quaternion.identity);
-    //    }
-    //    so.ApplyModifiedProperties();
-    //}
 }

@@ -1,8 +1,5 @@
-﻿using System;
-using System.IO;
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
 [CustomEditor(typeof(WaypointSystem))]
 public class WaypointSystemEditor : Editor
@@ -19,27 +16,33 @@ public class WaypointSystemEditor : Editor
     private int selectedPath = -1;
     private Vector3 closestPointToMouse;
     private float closestDistance = -1;
+    private const float maxDistanceFromLine = 3.0f;
 
     private Vector3 inspectorAddPoint = Vector3.zero;
     private int inspectorAddAtIndex = 0;
 
     private WaypointSystem waypointSystem;
 
+    private Ray pointPositionRay;
+    private RaycastHit pointPositionHit;
+    private Ray mousePositionRay;
+    private RaycastHit mousePositionHit;
+
     #region Constant Strings
 
-    const string labelWaypointSystem = "WaypointSystem";
-    const string labelInspectorEditPath = "Edit Path";
-    const string labelEditPathIcon = "EditCollider";
-    const string labelInspectorAddPoint = "Add point";
-    const string labelInspectorPosition = "Position";
-    const string labelInspectorAddAtIndex = "Add at index";
+    private const string labelWaypointSystem = "WaypointSystem";
+    private const string labelInspectorEditPath = "Edit Path";
+    private const string labelEditPathIcon = "EditCollider";
+    private const string labelInspectorAddPoint = "Add point";
+    private const string labelInspectorPosition = "Position";
+    private const string labelInspectorAddAtIndex = "Add at index";
 
-    const string labelUndoAddWaypoint = "Add waypoint";
-    const string labelUndoRemoveWaypoint = "Remove waypoint";
+    private const string labelUndoAddWaypoint = "Add waypoint";
+    private const string labelUndoRemoveWaypoint = "Remove waypoint";
 
-    const string labelGUIAddNewPoint = "Ctrl + click to add a new point.";
-    const string labelGUIInsertPoint = "Click to insert a point between two points.";
-    const string labelGUIRemovePoint = "Alt + click on a point to remove it.";
+    private const string labelGUIAddNewPoint = "Ctrl + click to add a new point.";
+    private const string labelGUIInsertPoint = "Click to insert a point between two points.";
+    private const string labelGUIRemovePoint = "Alt + click on a point to remove it.";
 
     #endregion Constant Strings
 
@@ -96,12 +99,22 @@ public class WaypointSystemEditor : Editor
                 GUILayout.Label(labelInspectorEditPath);
                 if (GUILayout.Button(EditorGUIUtility.IconContent(labelEditPathIcon), EditorStyles.miniButton))
                 {
-                    editing = !editing;
-                    Repaint();
-                    SceneView.RepaintAll();
+                    ToggleEditing();
                 }
             }
         }
+    }
+
+    private void ToggleEditing()
+    {
+        editing = !editing;
+
+        selectedPath = -1;
+        closestDistance = -1;
+        closestPointToMouse = Vector3.zero;
+        
+        Repaint();
+        SceneView.RepaintAll();
     }
 
     private void DrawInspectorManualPointInsertion()
@@ -163,61 +176,76 @@ public class WaypointSystemEditor : Editor
 
         if (current.type == EventType.MouseDown && current.button == 0 && editing)
         {
-            bool listContainsPoint = false;
-            int pointIndex = -1;
-
-            int index = 0;
-            foreach (Vector3 point in waypointSystem.Waypoints)
-            {
-                float distance = Vector3.Distance(point, closestPointToMouse);
-                if (distance < 0.5)
-                {
-                    listContainsPoint = true;
-                    pointIndex = index;
-                    break;
-                }
-
-                index++;
-            }
+            int pointIndex = GetPointIndex();
 
             if (holdingAlt)
             {
-                Undo.RecordObject(waypointSystem, labelUndoRemoveWaypoint);
-                if (listContainsPoint && pointIndex != -1)
-                {
-                    waypointSystem.RemovePointAt(pointIndex);
-                }
-                current.Use();
+                TryRemovePoint(current, pointIndex);
             }
-            else if (!listContainsPoint)
+            else if (pointIndex == -1)
             {
                 Undo.RecordObject(waypointSystem, labelUndoAddWaypoint);
-                if (holdingCtrl)
-                {
-                    waypointSystem.AddPointToList(GetPointPosition(currentMouseWorldPoint));
-                }
-                else
-                {
-                    Vector3 pointPosition = GetPointPosition(closestPointToMouse);
-
-                    if(selectedPath == waypointSystem.Waypoints.Count)
-                    {
-                        waypointSystem.AddPointToList(pointPosition);
-                    }
-                    else
-                    {
-                        waypointSystem.AddPointToList(pointPosition, selectedPath);
-                    }
-                }
+                AddWaypointFromSceneView();
             }
         }
 
         serializedObject.ApplyModifiedProperties();
     }
 
+    private void AddWaypointFromSceneView()
+    {
+        if (holdingCtrl)
+        {
+            waypointSystem.AddPointToList(GetPointPosition(currentMouseWorldPoint));
+        }
+        else
+        {
+            if (Vector3.Distance(currentMouseWorldPoint, closestPointToMouse) < maxDistanceFromLine)
+            {
+                Vector3 pointPosition = GetPointPosition(closestPointToMouse);
+
+                if (selectedPath == waypointSystem.Waypoints.Count)
+                {
+                    waypointSystem.AddPointToList(pointPosition);
+                }
+                else
+                {
+                    waypointSystem.AddPointToList(pointPosition, selectedPath);
+                }
+            }
+        }
+    }
+
+    private void TryRemovePoint(Event current, int pointIndex)
+    {
+        Undo.RecordObject(waypointSystem, labelUndoRemoveWaypoint);
+        if (pointIndex != -1)
+        {
+            waypointSystem.RemovePointAt(pointIndex);
+        }
+        current.Use();
+    }
+
+    private int GetPointIndex()
+    {
+        int index = 0;
+        foreach (Vector3 point in waypointSystem.Waypoints)
+        {
+            float distance = Vector3.Distance(point, closestPointToMouse);
+            if (distance < 0.5)
+            {
+                return index;
+            }
+
+            index++;
+        }
+
+        return -1;
+    }
+
     private void DrawAddPointHandle()
     {
-        if (selectedPath >= 0 || holdingCtrl)
+        if (editing && (selectedPath >= 0 || holdingCtrl))
         {
             Handles.color = Color.green;
             Handles.CubeHandleCap(-1, holdingCtrl ? currentMouseWorldPoint : closestPointToMouse, Quaternion.identity, 0.5f, EventType.Repaint);
@@ -229,11 +257,11 @@ public class WaypointSystemEditor : Editor
     {
         if (propForcePointsToGround.boolValue)
         {
-            Ray ray = new Ray(currentPosition + (Vector3.up * 10), Vector3.down);
+            pointPositionRay = new Ray(currentPosition + (Vector3.up * 10), Vector3.down);
 
-            if (Physics.Raycast(ray, out RaycastHit hit))
+            if (Physics.Raycast(pointPositionRay, out pointPositionHit))
             {
-                return hit.point;
+                return pointPositionHit.point;
             }
         }
 
@@ -242,43 +270,12 @@ public class WaypointSystemEditor : Editor
 
     private void SetCurrentMouseWorldPosition(SceneView sceneView)
     {
-        Ray ray = HandleUtility.GUIPointToWorldRay(Event.current.mousePosition);
-        if (Physics.Raycast(ray, out RaycastHit hit))
+        mousePositionRay = HandleUtility.GUIPointToWorldRay(Event.current.mousePosition);
+        if (Physics.Raycast(mousePositionRay, out mousePositionHit))
         {
-            currentMouseWorldPoint = hit.point;
+            currentMouseWorldPoint = mousePositionHit.point;
             sceneView.Repaint();
         }
-    }
-
-    private Vector3 GetNearestPointOnEdge(Vector3 point, Vector3 start, Vector3 end, int pathIndex)
-    {
-        Vector3 rhs = point - start;
-        Vector3 normalized = (end - start).normalized;
-
-        float num = Vector3.Dot(normalized, rhs);
-
-        if(num <= 0.0f)
-        {
-            return start;
-        }
-
-        if(num >= Vector3.Distance(start, end))
-        {
-            return end;
-        }
-
-        Vector3 vector = normalized * num;
-
-        Vector3 returnPoint = start + vector;
-
-        if(Vector3.Distance(point, returnPoint) < closestDistance || closestDistance < 0 || selectedPath == pathIndex)
-        {
-            closestPointToMouse = returnPoint;
-            closestDistance = Vector3.Distance(point, returnPoint);
-            selectedPath = pathIndex;
-        }
-
-        return returnPoint;
     }
 
     void DrawWaypoints(WaypointSystem waypointSystem, Vector3 mousePosition)
@@ -291,65 +288,103 @@ public class WaypointSystemEditor : Editor
 
             if (i > 0)
             {
-                if (selectedPath == i)
-                {
-                    Handles.color = Color.green;
-                }
-                Handles.DrawAAPolyLine(previousWaypoint, prop.vector3Value);
-                Handles.color = Color.white;
+                DrawLineBetweenPoints(previousWaypoint, prop.vector3Value, selectedPath == i);
             }
 
             if (i == propWaypoints.arraySize - 1 && waypointSystem.LoopPath)
             {
-                if (selectedPath == i + 1)
-                {
-                    Handles.color = Color.green;
-                }
-                Handles.DrawAAPolyLine(prop.vector3Value, propWaypoints.GetArrayElementAtIndex(0).vector3Value);
-                Handles.color = Color.white;
+                DrawLineBetweenPoints(prop.vector3Value, propWaypoints.GetArrayElementAtIndex(0).vector3Value, selectedPath == i + 1);
             }
 
             if (editing)
             {
-                prop.vector3Value = Handles.PositionHandle(prop.vector3Value, Quaternion.identity);
+                DrawPositionHandleAtPoint(prop);
 
-                Ray ray = new Ray(prop.vector3Value + (Vector3.up * 20), Vector3.down);
-                if(Physics.Raycast(ray, out RaycastHit hit))
+                if (i != 0)
                 {
-                    prop.vector3Value = hit.point;
+                    GetNearestPointOnLine(mousePosition, previousWaypoint, prop.vector3Value, i);
+                }
+                if (i == propWaypoints.arraySize - 1 && waypointSystem.LoopPath)
+                {
+                    GetNearestPointOnLine(mousePosition, prop.vector3Value, propWaypoints.GetArrayElementAtIndex(0).vector3Value, i + 1);
                 }
             }
             else
             {
-                if (i == 0)
-                {
-                    Handles.color = Color.green;
-                }
-                else if (i == propWaypoints.arraySize - 1)
-                {
-                    Handles.color = Color.red;
-                }
-                else
-                {
-                    Handles.color = Color.black;
-                }
-                Handles.SphereHandleCap(-1, prop.vector3Value, Quaternion.identity, 1.0f, EventType.Repaint);
+                DrawMarkerAtPoint(prop, i);
             }
 
             Handles.Label(prop.vector3Value, (i + 1).ToString(), EditorStyles.boldLabel);
-
-            if (i != 0)
-            {
-                GetNearestPointOnEdge(mousePosition, previousWaypoint, prop.vector3Value, i);
-            }
-            if (i == propWaypoints.arraySize - 1 && waypointSystem.LoopPath)
-            {
-                GetNearestPointOnEdge(mousePosition, prop.vector3Value, propWaypoints.GetArrayElementAtIndex(0).vector3Value, i + 1);
-            }
-
-            Handles.color = Color.white;
             previousWaypoint = prop.vector3Value;
         }
+    }
+
+    private Vector3 GetNearestPointOnLine(Vector3 point, Vector3 start, Vector3 end, int pathIndex)
+    {
+        Vector3 rhs = point - start;
+        Vector3 normalized = (end - start).normalized;
+
+        float num = Vector3.Dot(normalized, rhs);
+
+        if (num <= 0.0f)
+        {
+            return start;
+        }
+
+        if (num >= Vector3.Distance(start, end))
+        {
+            return end;
+        }
+
+        Vector3 vector = normalized * num;
+
+        Vector3 returnPoint = start + vector;
+
+        if (Vector3.Distance(point, returnPoint) < closestDistance || closestDistance < 0 || selectedPath == pathIndex)
+        {
+            closestPointToMouse = returnPoint;
+            closestDistance = Vector3.Distance(point, returnPoint);
+            selectedPath = pathIndex;
+        }
+
+        return returnPoint;
+    }
+
+    private void DrawMarkerAtPoint(SerializedProperty prop, int index)
+    {
+        if (index == 0)
+        {
+            Handles.color = Color.green;
+        }
+        else if (index == propWaypoints.arraySize - 1)
+        {
+            Handles.color = Color.red;
+        }
+        else
+        {
+            Handles.color = Color.black;
+        }
+        Handles.SphereHandleCap(-1, prop.vector3Value, Quaternion.identity, 1.0f, EventType.Repaint);
+
+        Handles.color = Color.white;
+    }
+
+    private void DrawPositionHandleAtPoint(SerializedProperty prop)
+    {
+        prop.vector3Value = Handles.PositionHandle(prop.vector3Value, Quaternion.identity);
+
+        prop.vector3Value = GetPointPosition(prop.vector3Value);
+    }
+
+    private void DrawLineBetweenPoints(Vector3 pointA, Vector3 pointB, bool isSelectedPath)
+    {
+        if (isSelectedPath)
+        {
+            Handles.color = Color.green;
+        }
+
+        Handles.DrawAAPolyLine(pointA, pointB);
+        Handles.color = Color.white;
     }
 
     void DrawInformationBox(WaypointSystem waypointSystem)
